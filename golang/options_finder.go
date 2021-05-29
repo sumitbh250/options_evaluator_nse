@@ -7,7 +7,6 @@ import (
 	"math"
   _ "net/http/pprof"
 	"net/http"
-  "net/url"
 	"os"
 	"runtime"
 	"sort"
@@ -217,12 +216,14 @@ func isTradeComboValid(tradeCombo []TradeIfc) bool {
 	return true
 }
 
-func validTradeComboIter(trades []TradeIfc, numTrades int32, stock string) chan []TradeIfc {
+func validTradeComboIter(fixedTrades []TradeIfc, trades []TradeIfc, numTrades int32, stock string) chan []TradeIfc {
 	chnl := make(chan []TradeIfc)
 	i, j := 0, 0
 	go func() {
+		numTrades -= int32(len(fixedTrades))
 		for tradeCombo := range combinationsWithReplacement(trades, numTrades) {
 			// spew.Dump(tradeCombo)
+			tradeCombo = append(tradeCombo, fixedTrades...)
 			if isTradeComboValid(tradeCombo) {
 				chnl <- tradeCombo
 				i++
@@ -278,21 +279,14 @@ func addValidCallsToTradeArr(tradesArr []TradeIfc, allCalls *AllCallsJson, curre
 	return tradesArr
 }
 
-func getStockResult(stock string, lotSize float64, url string) {
+func getStockResult(stock string, lotSize float64) {
 	currentPrice, _ := Web.FetchCurrentPrice(stock)
-	jsonCalls, _ := Web.FetchOptionsData(url)
+	jsonCalls, _ := Web.FetchOptionsData(stock)
 	rangeToCheck := getTradeRange(currentPrice, jsonCalls)
 	var tradesArr []TradeIfc
 	tradesArr = append(tradesArr, NewNullTrade())
-	// aa := new(PEBuyTrade)
-	// bb := new(PESellTrade)
-	// aa.Premium = 3.3
-	// aa.StrikePrice = 170
-	// bb.Premium = 5.4
-	// bb.StrikePrice = 180
-	// tradesArr = append(tradesArr, aa, bb)
 	tradesArr = addValidCallsToTradeArr(tradesArr, jsonCalls, currentPrice)
-	for tradeCombo := range validTradeComboIter(tradesArr, NumTrades, stock) {
+	for tradeCombo := range validTradeComboIter(fixedTradesArr, tradesArr, NumTrades, stock) {
 		tradeComboCopy := make([]TradeIfc, len(tradeCombo))
 		_ = copy(tradeComboCopy, tradeCombo)
 		// spew.Dump(tradeCombo)
@@ -376,31 +370,18 @@ func init() {
 }
 
 func main() {
-
-	fmt.Println("acsdsd")
-	indicesTemplate := "https://www.nseindia.com/api/option-chain-indices?symbol="
 	WG.Add(len(OptionsIndiceLotDict) + len(OptionsStockLotDict))
 	for stock, lotSize := range OptionsIndiceLotDict {
-		url := indicesTemplate + url.QueryEscape(stock)
 		go func(stock string, lotSize float64) {
 			defer WG.Done()
-			getStockResult(stock, lotSize, url)
+			getStockResult(stock, lotSize)
 		}(stock, lotSize)
-		// fmt.Println("\033[91m", stock, lotSize, url, "\033[00m")
 	}
-	stocksTemplate := "https://www.nseindia.com/api/option-chain-equities?symbol="
-	// count:=0
 	for stock, lotSize := range OptionsStockLotDict {
-	  url := stocksTemplate + url.QueryEscape(stock)
 		go func(stock string, lotSize float64) {
 			defer WG.Done()
-			getStockResult(stock, lotSize, url)
+			getStockResult(stock, lotSize)
 		}(stock, lotSize)
-		// count++
-		// if (count % 10 == 0) {
-		// 	time.Sleep(0 * time.Second)
-		// }
-		// fmt.Println("\033[92m", stock, lotSize, url, "\033[00m")
 	}
 
 	go func() {

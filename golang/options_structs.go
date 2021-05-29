@@ -208,3 +208,16 @@ func (t *CESellTrade) GetStrikePrice() float64 {
 func (t *CESellTrade) PrintDetails() {
 	fmt.Println("CE Sell", t.StrikePrice, t.Premium, t.TradedVolume, t.OpenInterest)
 }
+
+// type FutureBuyTrade struct {
+// 	Trade
+// }
+
+// func NewFutureBuyTrade() {
+// 	trade = new(FutureBuyTrade)
+// 	trade.Premium = 1
+// 	trade.StrikePrice = 1
+// 	trade.TradeType = TradeType_SELL
+// 	trade.CallType = CallType_FUTURE
+// 	return trade
+// }

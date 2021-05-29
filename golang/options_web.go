@@ -1,7 +1,6 @@
 package main
 
 import (
-	// "bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	// "github.com/davecgh/go-spew/spew"
 )
 
 type WebSession struct {
@@ -166,14 +164,22 @@ type OptionsRecords struct {
 	Data AllCallsJson `json:"records"`
 }
 
-func (ws *WebSession) FetchOptionsData(url string) (*AllCallsJson, error) {
+func (ws *WebSession) FetchOptionsData(stock string) (*AllCallsJson, error) {
 	header := http.Header {
     "user-agent": {"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.149 Safari/537.36"},
     "accept-language": {"en,gu;q=0.9,hi;q=0.8"},
 		"accept-encoding": {"gzip, deflate, br"},
 		"accept": {"application/json, text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9"},
 	}
-	body, err := ws.getDataFromWeb(getHttpGetRequest(url, header))
+	stockUrl := ""
+	indicesTemplate := "https://www.nseindia.com/api/option-chain-indices?symbol="
+	stocksTemplate := "https://www.nseindia.com/api/option-chain-equities?symbol="
+	if _, ok := OptionsIndiceLotDict[stock]; ok {
+		stockUrl = indicesTemplate + url.QueryEscape(stock)
+	} else {
+		stockUrl = stocksTemplate + url.QueryEscape(stock)
+	}
+	body, err := ws.getDataFromWeb(getHttpGetRequest(stockUrl, header))
 	var optionsRecords OptionsRecords
 	err = json.Unmarshal(body, &optionsRecords)
 	if err != nil {
@@ -184,6 +190,16 @@ func (ws *WebSession) FetchOptionsData(url string) (*AllCallsJson, error) {
 	// spew.Dump(optionsRecords)
 	return &optionsRecords.Data, nil
 }
+
+// func (ws *WebSession) FetchFuturesData(url string) error {
+// 	header := http.Header {
+//     "user-agent": {"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.149 Safari/537.36"},
+//     "accept-language": {"en,gu;q=0.9,hi;q=0.8"},
+// 		"accept-encoding": {"gzip, deflate, br"},
+// 		"accept": {"application/json, text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9"},
+// 	}
+// 	body, err := ws.getDataFromWeb(getHttpGetRequest(url, header))
+// }
 
 func (ws *WebSession) initZerodhaSession() {
 	header := http.Header {
