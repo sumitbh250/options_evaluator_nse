@@ -135,7 +135,7 @@ var (
 		// "RAMCOCEM": 850,
 		// "RBLBANK": 2900,
 		// "RECLTD": 6000,
-		"RELIANCE": 250,
+		// "RELIANCE": 250,
 		// "SAIL": 19000,
 		// "SBILIFE": 750,
 		// "SBIN": 3000,

@@ -14,6 +14,7 @@ const (
 	CallType_NULL CallType = iota
 	CallType_CALL
 	CallType_PUT
+	CallType_FUTURE
 )
 
 type Trade struct {
@@ -209,15 +210,62 @@ func (t *CESellTrade) PrintDetails() {
 	fmt.Println("CE Sell", t.StrikePrice, t.Premium, t.TradedVolume, t.OpenInterest)
 }
 
-// type FutureBuyTrade struct {
-// 	Trade
-// }
+type FutureBuyTrade struct {
+	Trade
+}
+func NewFutureBuyTrade(call *StocksData) *FutureBuyTrade {
+	trade := new(FutureBuyTrade)
+	trade.Premium = call.MarketDeptOrderBook.CarryOfCost.Price.BestSell
+	trade.StrikePrice = call.Metadata.StrikePrice
+	trade.TradeType = TradeType_BUY
+	trade.CallType = CallType_FUTURE
+	return trade
+}
+func (t *FutureBuyTrade) ProfitAmount(expiryPrice float64) float64 {
+	return (expiryPrice - t.Premium)
+}
+func (t *FutureBuyTrade) GetTradeType() TradeType {
+	return t.TradeType
+}
+func (t *FutureBuyTrade) GetCallType() CallType {
+	return t.CallType
+}
+func (t *FutureBuyTrade) GetPremium() float64 {
+	return t.Premium
+}
+func (t *FutureBuyTrade) GetStrikePrice() float64 {
+	return t.StrikePrice
+}
+func (t *FutureBuyTrade) PrintDetails() {
+	fmt.Println("Future Buy", t.StrikePrice, t.Premium, t.TradedVolume, t.OpenInterest)
+}
 
-// func NewFutureBuyTrade() {
-// 	trade = new(FutureBuyTrade)
-// 	trade.Premium = 1
-// 	trade.StrikePrice = 1
-// 	trade.TradeType = TradeType_SELL
-// 	trade.CallType = CallType_FUTURE
-// 	return trade
-// }
+type FutureSellTrade struct {
+	Trade
+}
+func NewFutureSellTrade(call *StocksData) *FutureSellTrade {
+	trade := new(FutureSellTrade)
+	trade.Premium = call.MarketDeptOrderBook.CarryOfCost.Price.BestBuy
+	trade.StrikePrice = call.Metadata.StrikePrice
+	trade.TradeType = TradeType_SELL
+	trade.CallType = CallType_FUTURE
+	return trade
+}
+func (t *FutureSellTrade) ProfitAmount(expiryPrice float64) float64 {
+	return (t.Premium - expiryPrice)
+}
+func (t *FutureSellTrade) GetTradeType() TradeType {
+	return t.TradeType
+}
+func (t *FutureSellTrade) GetCallType() CallType {
+	return t.CallType
+}
+func (t *FutureSellTrade) GetPremium() float64 {
+	return t.Premium
+}
+func (t *FutureSellTrade) GetStrikePrice() float64 {
+	return t.StrikePrice
+}
+func (t *FutureSellTrade) PrintDetails() {
+	fmt.Println("Future Buy", t.StrikePrice, t.Premium, t.TradedVolume, t.OpenInterest)
+}

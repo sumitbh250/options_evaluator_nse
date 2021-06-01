@@ -191,15 +191,65 @@ func (ws *WebSession) FetchOptionsData(stock string) (*AllCallsJson, error) {
 	return &optionsRecords.Data, nil
 }
 
-// func (ws *WebSession) FetchFuturesData(url string) error {
-// 	header := http.Header {
-//     "user-agent": {"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.149 Safari/537.36"},
-//     "accept-language": {"en,gu;q=0.9,hi;q=0.8"},
-// 		"accept-encoding": {"gzip, deflate, br"},
-// 		"accept": {"application/json, text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9"},
-// 	}
-// 	body, err := ws.getDataFromWeb(getHttpGetRequest(url, header))
-// }
+type MetadataInfo struct {
+	InstrumentType string `json:instrumentType`
+	ExpiryDate string `json:expiryDate`
+	OptionType string `json:optionType`
+	StrikePrice float64 `json:strikePrice`
+	Identifier string `json:identifier`
+	NumberOfContractsTraded float64 `json:numberOfContractsTraded`
+}
+
+type OrderInfo struct {
+	Price float64 `json:price`
+}
+
+type CarryOfCostPriceInfo struct {
+	BestBuy float64 `json:bestBuy`
+	BestSell float64 `json:bestSell`
+	LastPrice float64 `json:lastPrice`
+}
+
+type CarryOfCostInfo struct {
+	Price *CarryOfCostPriceInfo `json:price`
+	Carry *CarryOfCostPriceInfo `json:carry`
+}
+
+type MarketDeptOrderBookInfo struct {
+	Bid []*OrderInfo `json:bid`
+	Ask []*OrderInfo `json:ask`
+	CarryOfCost *CarryOfCostInfo `json:carryOfCost`
+}
+
+type StocksData struct {
+	Metadata MetadataInfo `json:metadata`
+	MarketDeptOrderBook MarketDeptOrderBookInfo `json:marketDeptOrderBook`
+}
+
+type OptionsFutRecords struct {
+	Stocks []*StocksData `json:stocks`
+}
+
+func (ws *WebSession) FetchOptionsAndFuturesData(stock string) (*OptionsFutRecords, error) {
+	header := http.Header {
+    "user-agent": {"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.149 Safari/537.36"},
+    "accept-language": {"en,gu;q=0.9,hi;q=0.8"},
+		"accept-encoding": {"gzip, deflate, br"},
+		"accept": {"application/json, text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9"},
+	}
+	urlTemplate := "https://www.nseindia.com/api/quote-derivative?symbol="
+	stockUrl := urlTemplate + url.QueryEscape(stock)
+	body, err := ws.getDataFromWeb(getHttpGetRequest(stockUrl, header))
+	var optionsFutRecords OptionsFutRecords
+	err = json.Unmarshal(body, &optionsFutRecords)
+	if err != nil {
+		log.Fatal("%s\n", body)
+		//log.Fatal("Error decoding options response:", url, body)
+		return nil, err
+	}
+	// spew.Dump(optionsRecords)
+	return &optionsFutRecords, nil
+}
 
 func (ws *WebSession) initZerodhaSession() {
 	header := http.Header {
@@ -257,12 +307,16 @@ func (ws *WebSession) GetMarginForTrades(trades []TradeIfc, symbol string,
 	}
 	for trade, freq := range tradesFreq {
 		data.Add("exchange[]", "NFO")
-		data.Add("product[]", "OPT")
 		data.Add("scrip[]", symbol+expiryDate)
 		if trade.GetCallType() == CallType_CALL {
+			data.Add("product[]", "OPT")
 			data.Add("option_type[]", "CE")
 		} else if trade.GetCallType() == CallType_PUT {
+			data.Add("product[]", "OPT")
 			data.Add("option_type[]", "PE")
+		} else if trade.GetCallType() == CallType_FUTURE {
+			data.Add("product[]", "FUT")
+			data.Add("option_type[]", "CE")
 		}
 		if trade.GetTradeType() == TradeType_BUY {
 			data.Add("trade[]", "buy")

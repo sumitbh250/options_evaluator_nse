@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 	// "github.com/davecgh/go-spew/spew"
+	"github.com/go-telegram-bot-api/telegram-bot-api"
 )
 
 type Range struct {
@@ -39,7 +40,7 @@ type Result struct {
 }
 
 func getTradeRange(currentPrice float64, allCalls *AllCallsJson) Range {
-	firstLowest, secondLowest := math.MaxFloat64, math.MaxFloat64
+	lowerClosest, higherClosest := float64(-1), math.MaxFloat64
 	for _, call := range allCalls.CallsArr {
 	  var callDetails *SingleCallDetailsJson
 		if call.CE != nil {
@@ -51,11 +52,10 @@ func getTradeRange(currentPrice float64, allCalls *AllCallsJson) Range {
 		if callDetails.ExpiryDate != NseExpiryDate {
 			continue
 		}
-		if callDetails.StrikePrice < firstLowest {
-			secondLowest = firstLowest
-			firstLowest = callDetails.StrikePrice
-		} else if callDetails.StrikePrice < secondLowest {
-			secondLowest = callDetails.StrikePrice
+		if callDetails.StrikePrice < currentPrice && lowerClosest < callDetails.StrikePrice {
+			lowerClosest = callDetails.StrikePrice
+		} else if callDetails.StrikePrice > currentPrice && higherClosest > callDetails.StrikePrice {
+			higherClosest = callDetails.StrikePrice
 		}
 	}
 	lowerBound := math.Floor(currentPrice - (currentPrice * AnalysisRangeLowerPct))
@@ -64,7 +64,7 @@ func getTradeRange(currentPrice float64, allCalls *AllCallsJson) Range {
 	safetyEnd := math.Ceil(currentPrice + (currentPrice * SafetyRangeUpperPct))
 	profitStart := math.Floor(currentPrice - (currentPrice * ProfitRangeLowerPct))
 	profitEnd := math.Floor(currentPrice + (currentPrice * ProfitRangeUpperPct))
-	return Range{lowerBound, upperBound, (secondLowest-firstLowest), profitStart, profitEnd, safetyStart, safetyEnd}
+	return Range{lowerBound, upperBound, (higherClosest-lowerClosest), profitStart, profitEnd, safetyStart, safetyEnd}
 }
 
 func findTradeResult(tradeCombo []TradeIfc, stockRange Range, lotSize float64, symbol string, currentPrice float64) {
@@ -79,11 +79,15 @@ func findTradeResult(tradeCombo []TradeIfc, stockRange Range, lotSize float64, s
 
 	var amountInvested float64 = 0
 	hasSellTrade := false
+	hasFutureTrade := false
 	for _, trade := range tradeCombo {
 		if trade.GetTradeType() == TradeType_SELL {
 			hasSellTrade = true
-		} else if trade.GetTradeType() == TradeType_BUY {
+		} else if (trade.GetTradeType() == TradeType_BUY && trade.GetCallType() != CallType_FUTURE) {
 			amountInvested += (trade.GetPremium() * lotSize)
+		}
+		if trade.GetCallType() == CallType_FUTURE {
+			hasFutureTrade = true
 		}
 	}
 	if amountInvested > MaxInvestmentAmount {
@@ -138,7 +142,7 @@ func findTradeResult(tradeCombo []TradeIfc, stockRange Range, lotSize float64, s
 			}
 		}
 	}
-	if hasSellTrade {
+	if hasSellTrade || hasFutureTrade {
 		amountInvested += Web.GetMarginForTrades(tradeCombo, symbol, lotSize, ZerodhaExpiryDate)
 	}
 	if amountInvested > MaxInvestmentAmount {
@@ -157,11 +161,13 @@ func findTradeResult(tradeCombo []TradeIfc, stockRange Range, lotSize float64, s
 }
 
 func isTradeComboValid(tradeCombo []TradeIfc) bool {
-	numBuy, numSell, totalCalls := 0, 0, 0
+	numBuy, numSell, numFut, totalCalls := 0, 0, 0, 0
 	ceBuyStrikes := make(map[float64]bool)
 	ceSellStrikes := make(map[float64]bool)
 	peBuyStrikes := make(map[float64]bool)
 	peSellStrikes := make(map[float64]bool)
+	futBuyTrade := false
+	futSellTrade := false
 	for _, trade := range(tradeCombo) {
 		if trade.GetTradeType() == TradeType_SELL {
 			numSell++
@@ -176,6 +182,12 @@ func isTradeComboValid(tradeCombo []TradeIfc) bool {
 					return false
 				}
 				peSellStrikes[trade.GetStrikePrice()] = true
+			} else if trade.GetCallType() == CallType_FUTURE {
+				if futBuyTrade {
+					return false
+				}
+				numFut++
+				futSellTrade = true
 			}
 		} else if trade.GetTradeType() == TradeType_BUY {
 			numBuy++
@@ -190,6 +202,12 @@ func isTradeComboValid(tradeCombo []TradeIfc) bool {
 					return false
 				}
 				peBuyStrikes[trade.GetStrikePrice()] = true
+			} else if trade.GetCallType() == CallType_FUTURE {
+				if futSellTrade {
+					return false
+				}
+				numFut++
+				futBuyTrade = true
 			}
 		}
 	}
@@ -198,6 +216,9 @@ func isTradeComboValid(tradeCombo []TradeIfc) bool {
 		return false
 	}
 
+	// if numFut == 0 {
+	// 	return false
+	// }
 	// if numBuy <= numSell {
 	// 	return false
 	// }
@@ -279,6 +300,26 @@ func addValidCallsToTradeArr(tradesArr []TradeIfc, allCalls *AllCallsJson, curre
 	return tradesArr
 }
 
+func addValidFutCallsToTradeArr(tradesArr []TradeIfc, optFutCalls *OptionsFutRecords) []TradeIfc {
+	for _, call := range optFutCalls.Stocks {
+		if call.Metadata.InstrumentType != "Stock Futures" && call.Metadata.InstrumentType != "Index Futures" {
+			continue
+		}
+		if call.Metadata.ExpiryDate != NseExpiryDate {
+			continue
+		}
+		buyTrade := NewFutureBuyTrade(call)
+		sellTrade := NewFutureSellTrade(call)
+		if buyTrade.Premium > 0 {
+			tradesArr = append(tradesArr, buyTrade)
+		}
+		if buyTrade.Premium > 0 {
+			tradesArr = append(tradesArr, sellTrade)
+		}
+	}
+	return tradesArr
+}
+
 func getStockResult(stock string, lotSize float64) {
 	currentPrice, _ := Web.FetchCurrentPrice(stock)
 	jsonCalls, _ := Web.FetchOptionsData(stock)
@@ -286,6 +327,9 @@ func getStockResult(stock string, lotSize float64) {
 	var tradesArr []TradeIfc
 	tradesArr = append(tradesArr, NewNullTrade())
 	tradesArr = addValidCallsToTradeArr(tradesArr, jsonCalls, currentPrice)
+	jsonOptFutCalls, _ := Web.FetchOptionsAndFuturesData(stock)
+	// spew.Dump(jsonOptFutCalls)
+	tradesArr = addValidFutCallsToTradeArr(tradesArr, jsonOptFutCalls)
 	for tradeCombo := range validTradeComboIter(fixedTradesArr, tradesArr, NumTrades, stock) {
 		tradeComboCopy := make([]TradeIfc, len(tradeCombo))
 		_ = copy(tradeComboCopy, tradeCombo)
@@ -302,6 +346,7 @@ var WG sync.WaitGroup
 var ResultMutex sync.Mutex
 var Results []*Result
 var Web *WebSession
+var Bot *tgbotapi.BotAPI
 
 func printResultAnalysis(r *Result) {
 	fmt.Println("Symbol", r.symbol, "Current Price", r.currentPrice,
@@ -327,12 +372,6 @@ func printResultAnalysis(r *Result) {
 		}
 	}
 }
-
-type SortType int32
-const (
-	SortType_MIN_PROFIT SortType = iota
-	SortType_AVG_PROFIT
-)
 
 func analyzeResults() {
 	fmt.Println("Results printing")
@@ -367,6 +406,12 @@ func analyzeResults() {
 
 func init() {
 	Web = NewWebSession(HttpTimeoutSecs, HttpRetryCount, MaxFileDescriptors)
+	var err error
+	Bot, err = tgbotapi.NewBotAPI(TelegramBotToken)
+	if err != nil {
+		log.Panic(err)
+	}
+	Bot.Debug = true
 }
 
 func main() {
@@ -394,6 +439,12 @@ func main() {
 		log.Println(http.ListenAndServe("localhost:6060", nil))
 	}()
 	WG.Wait()
-	analyzeResults()
+	if ResultAnalysisType == AnalysisType_TERMINAL {
+		analyzeResults()
+	} else if ResultAnalysisType == AnalysisType_TELEGRAM {
+		for _, chatId := range(ChatIds) {
+			msg := tgbotapi.NewMessage(chatId, "hello")
+			Bot.Send(msg)
+		}
+	}
 }
-
