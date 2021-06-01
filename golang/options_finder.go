@@ -1,20 +1,11 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
-	"log"
 	"math"
   _ "net/http/pprof"
-	"net/http"
-	"os"
-	"runtime"
-	"sort"
-	"strconv"
-	"sync"
-	"time"
+
 	// "github.com/davecgh/go-spew/spew"
-	"github.com/go-telegram-bot-api/telegram-bot-api"
 )
 
 type Range struct {
@@ -37,6 +28,28 @@ type Result struct {
 	minProfit float64
 	avgProfit float64
 	amountInvested float64
+}
+
+func getStockResult(stock string, lotSize float64) {
+	currentPrice, _ := Web.FetchCurrentPrice(stock)
+	jsonCalls, _ := Web.FetchOptionsData(stock)
+	rangeToCheck := getTradeRange(currentPrice, jsonCalls)
+	var tradesArr []TradeIfc
+	tradesArr = append(tradesArr, NewNullTrade())
+	tradesArr = addValidOptionCallsToTradeArr(tradesArr, jsonCalls, currentPrice)
+	jsonOptFutCalls, _ := Web.FetchOptionsAndFuturesData(stock)
+	// spew.Dump(jsonOptFutCalls)
+	tradesArr = addValidFutCallsToTradeArr(tradesArr, jsonOptFutCalls)
+	for tradeCombo := range validTradeComboIter(fixedTradesArr, tradesArr, NumTrades, stock) {
+		tradeComboCopy := make([]TradeIfc, len(tradeCombo))
+		_ = copy(tradeComboCopy, tradeCombo)
+		// spew.Dump(tradeCombo)
+		WG.Add(1)
+		go func () {
+			defer WG.Done()
+			findTradeResult(tradeComboCopy, rangeToCheck, lotSize, stock, currentPrice)
+		}()
+	}
 }
 
 func getTradeRange(currentPrice float64, allCalls *AllCallsJson) Range {
@@ -160,6 +173,89 @@ func findTradeResult(tradeCombo []TradeIfc, stockRange Range, lotSize float64, s
 		amountInvested: amountInvested, currentPrice: currentPrice, tradeCombo: tradeCombo}
 }
 
+func addValidOptionCallsToTradeArr(tradesArr []TradeIfc, allCalls *AllCallsJson, currentPrice float64) []TradeIfc {
+	for _, call := range allCalls.CallsArr {
+		if call.CE != nil && checkValidity(call.CE, currentPrice) {
+			buyTrade := NewCEBuyTrade(call.CE)
+			sellTrade := NewCESellTrade(call.CE)
+			if buyTrade.Premium > 0 {
+				tradesArr = append(tradesArr, buyTrade)
+			}
+			if sellTrade.Premium > 0 {
+				tradesArr = append(tradesArr, sellTrade)
+			}
+		}
+		if call.PE != nil && checkValidity(call.PE, currentPrice) {
+			buyTrade := NewPEBuyTrade(call.PE)
+			sellTrade := NewPESellTrade(call.PE)
+			if buyTrade.Premium > 0 {
+				tradesArr = append(tradesArr, buyTrade)
+			}
+			if sellTrade.Premium > 0 {
+				tradesArr = append(tradesArr, sellTrade)
+			}
+		}
+	}
+	return tradesArr
+}
+
+func checkValidity(callDetails *SingleCallDetailsJson, currentPrice float64) bool {
+	if callDetails.ExpiryDate != NseExpiryDate {
+		return false
+	}
+	if callDetails.TotalTradedVolume < MinTotalTradedVolume {
+		return false
+	}
+	if ApplyStrikeRange {
+		lowerBound := math.Floor(currentPrice - (currentPrice * StrikeRangeLowerPct))
+		upperBound := math.Ceil(currentPrice + (currentPrice * StrikeRangeUpperPct))
+		if callDetails.StrikePrice < lowerBound || callDetails.StrikePrice > upperBound {
+			return false
+		}
+	}
+	return true
+}
+
+func addValidFutCallsToTradeArr(tradesArr []TradeIfc, optFutCalls *OptionsFutRecords) []TradeIfc {
+	for _, call := range optFutCalls.Stocks {
+		if call.Metadata.InstrumentType != "Stock Futures" && call.Metadata.InstrumentType != "Index Futures" {
+			continue
+		}
+		if call.Metadata.ExpiryDate != NseExpiryDate {
+			continue
+		}
+		buyTrade := NewFutureBuyTrade(call)
+		sellTrade := NewFutureSellTrade(call)
+		if buyTrade.Premium > 0 {
+			tradesArr = append(tradesArr, buyTrade)
+		}
+		if buyTrade.Premium > 0 {
+			tradesArr = append(tradesArr, sellTrade)
+		}
+	}
+	return tradesArr
+}
+
+func validTradeComboIter(fixedTrades []TradeIfc, trades []TradeIfc, numTrades int32, stock string) chan []TradeIfc {
+	chnl := make(chan []TradeIfc)
+	i, j := 0, 0
+	go func() {
+		numTrades -= int32(len(fixedTrades))
+		for tradeCombo := range combinationsWithReplacement(trades, numTrades) {
+			// spew.Dump(tradeCombo)
+			tradeCombo = append(tradeCombo, fixedTrades...)
+			if isTradeComboValid(tradeCombo) {
+				chnl <- tradeCombo
+				i++
+			}
+			j++
+		}
+		fmt.Println(stock, len(trades), i, j)
+		close(chnl)
+	}()
+	return chnl
+}
+
 func isTradeComboValid(tradeCombo []TradeIfc) bool {
 	numBuy, numSell, numFut, totalCalls := 0, 0, 0, 0
 	ceBuyStrikes := make(map[float64]bool)
@@ -235,216 +331,4 @@ func isTradeComboValid(tradeCombo []TradeIfc) bool {
 	// 	return false
 	// }
 	return true
-}
-
-func validTradeComboIter(fixedTrades []TradeIfc, trades []TradeIfc, numTrades int32, stock string) chan []TradeIfc {
-	chnl := make(chan []TradeIfc)
-	i, j := 0, 0
-	go func() {
-		numTrades -= int32(len(fixedTrades))
-		for tradeCombo := range combinationsWithReplacement(trades, numTrades) {
-			// spew.Dump(tradeCombo)
-			tradeCombo = append(tradeCombo, fixedTrades...)
-			if isTradeComboValid(tradeCombo) {
-				chnl <- tradeCombo
-				i++
-			}
-			j++
-		}
-		fmt.Println(stock, len(trades), i, j)
-		close(chnl)
-	}()
-	return chnl
-}
-
-func checkValidity(callDetails *SingleCallDetailsJson, currentPrice float64) bool {
-	if callDetails.ExpiryDate != NseExpiryDate {
-		return false
-	}
-	if callDetails.TotalTradedVolume < MinTotalTradedVolume {
-		return false
-	}
-	if ApplyStrikeRange {
-		lowerBound := math.Floor(currentPrice - (currentPrice * StrikeRangeLowerPct))
-		upperBound := math.Ceil(currentPrice + (currentPrice * StrikeRangeUpperPct))
-		if callDetails.StrikePrice < lowerBound || callDetails.StrikePrice > upperBound {
-			return false
-		}
-	}
-	return true
-}
-
-func addValidCallsToTradeArr(tradesArr []TradeIfc, allCalls *AllCallsJson, currentPrice float64) []TradeIfc {
-	for _, call := range allCalls.CallsArr {
-		if call.CE != nil && checkValidity(call.CE, currentPrice) {
-			buyTrade := NewCEBuyTrade(call.CE)
-			sellTrade := NewCESellTrade(call.CE)
-			if buyTrade.Premium > 0 {
-				tradesArr = append(tradesArr, buyTrade)
-			}
-			if sellTrade.Premium > 0 {
-				tradesArr = append(tradesArr, sellTrade)
-			}
-		}
-		if call.PE != nil && checkValidity(call.PE, currentPrice) {
-			buyTrade := NewPEBuyTrade(call.PE)
-			sellTrade := NewPESellTrade(call.PE)
-			if buyTrade.Premium > 0 {
-				tradesArr = append(tradesArr, buyTrade)
-			}
-			if sellTrade.Premium > 0 {
-				tradesArr = append(tradesArr, sellTrade)
-			}
-		}
-	}
-	return tradesArr
-}
-
-func addValidFutCallsToTradeArr(tradesArr []TradeIfc, optFutCalls *OptionsFutRecords) []TradeIfc {
-	for _, call := range optFutCalls.Stocks {
-		if call.Metadata.InstrumentType != "Stock Futures" && call.Metadata.InstrumentType != "Index Futures" {
-			continue
-		}
-		if call.Metadata.ExpiryDate != NseExpiryDate {
-			continue
-		}
-		buyTrade := NewFutureBuyTrade(call)
-		sellTrade := NewFutureSellTrade(call)
-		if buyTrade.Premium > 0 {
-			tradesArr = append(tradesArr, buyTrade)
-		}
-		if buyTrade.Premium > 0 {
-			tradesArr = append(tradesArr, sellTrade)
-		}
-	}
-	return tradesArr
-}
-
-func getStockResult(stock string, lotSize float64) {
-	currentPrice, _ := Web.FetchCurrentPrice(stock)
-	jsonCalls, _ := Web.FetchOptionsData(stock)
-	rangeToCheck := getTradeRange(currentPrice, jsonCalls)
-	var tradesArr []TradeIfc
-	tradesArr = append(tradesArr, NewNullTrade())
-	tradesArr = addValidCallsToTradeArr(tradesArr, jsonCalls, currentPrice)
-	jsonOptFutCalls, _ := Web.FetchOptionsAndFuturesData(stock)
-	// spew.Dump(jsonOptFutCalls)
-	tradesArr = addValidFutCallsToTradeArr(tradesArr, jsonOptFutCalls)
-	for tradeCombo := range validTradeComboIter(fixedTradesArr, tradesArr, NumTrades, stock) {
-		tradeComboCopy := make([]TradeIfc, len(tradeCombo))
-		_ = copy(tradeComboCopy, tradeCombo)
-		// spew.Dump(tradeCombo)
-		WG.Add(1)
-		go func () {
-			defer WG.Done()
-			findTradeResult(tradeComboCopy, rangeToCheck, lotSize, stock, currentPrice)
-		}()
-	}
-}
-
-var WG sync.WaitGroup
-var ResultMutex sync.Mutex
-var Results []*Result
-var Web *WebSession
-var Bot *tgbotapi.BotAPI
-
-func printResultAnalysis(r *Result) {
-	fmt.Println("Symbol", r.symbol, "Current Price", r.currentPrice,
-	  "Lot Size", r.lotSize, "Range", r.stockRange)
-	fmt.Println("Profit Ratio", r.profitRatio, "Avg Profit", r.avgProfit,
-	  "Min Profit", r.minProfit)
-	fmt.Println("Amount Invested", r.amountInvested)
-	for _, trade := range(r.tradeCombo) {
-		trade.PrintDetails()
-	}
-	step := r.stockRange.step
-	lowerBound := math.Floor(r.currentPrice - (r.currentPrice * PrintAnalysisRangeLowerPct))
-	upperBound := math.Ceil(r.currentPrice + (r.currentPrice * PrintAnalysisRangeUpperPct))
-	for expiryPrice := lowerBound; expiryPrice <= upperBound; expiryPrice += step {
-		profit := float64(0)
-		for _, trade := range r.tradeCombo {
-			profit += trade.ProfitAmount(expiryPrice)
-		}
-		if profit > 0 {
-			fmt.Println("\033[92m", expiryPrice, "    ",  int(profit * r.lotSize), "\033[00m")
-		} else {
-			fmt.Println("\033[91m", expiryPrice, "    ",  int(profit * r.lotSize), "\033[00m")
-		}
-	}
-}
-
-func analyzeResults() {
-	fmt.Println("Results printing")
-	// Reverse sort the results
-	sort.Slice(Results, func(i, j int) bool {
-		if ResultSortType == SortType_AVG_PROFIT {
-			return Results[i].avgProfit > Results[j].avgProfit
-		} else if  ResultSortType == SortType_MIN_PROFIT {
-			return Results[i].minProfit > Results[j].minProfit
-		} else {
-			return false
-		}
-	})
-	idx := -1
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		fmt.Println("Enter index out of ", len(Results))
-		byteText, _, _ := reader.ReadLine()
-		text := string(byteText)
-		fmt.Println("Input is: ", text)
-		if text == "" {
-			idx++
-		} else if i, err := strconv.Atoi(text); err != nil {
-			log.Fatalf("Invalid index")
-		} else {
-			idx = i
-		}
-		fmt.Println("Printing trade at index", idx)
-		printResultAnalysis(Results[idx])
-	}
-}
-
-func init() {
-	Web = NewWebSession(HttpTimeoutSecs, HttpRetryCount, MaxFileDescriptors)
-	var err error
-	Bot, err = tgbotapi.NewBotAPI(TelegramBotToken)
-	if err != nil {
-		log.Panic(err)
-	}
-	Bot.Debug = true
-}
-
-func main() {
-	WG.Add(len(OptionsIndiceLotDict) + len(OptionsStockLotDict))
-	for stock, lotSize := range OptionsIndiceLotDict {
-		go func(stock string, lotSize float64) {
-			defer WG.Done()
-			getStockResult(stock, lotSize)
-		}(stock, lotSize)
-	}
-	for stock, lotSize := range OptionsStockLotDict {
-		go func(stock string, lotSize float64) {
-			defer WG.Done()
-			getStockResult(stock, lotSize)
-		}(stock, lotSize)
-	}
-
-	go func() {
-		for {
-			fmt.Println(runtime.NumGoroutine())
-			time.Sleep(30 * time.Second)
-		}
-	}()
-	go func() {
-		log.Println(http.ListenAndServe("localhost:6060", nil))
-	}()
-	WG.Wait()
-	if ResultAnalysisType == AnalysisType_TERMINAL {
-		analyzeResults()
-	} else if ResultAnalysisType == AnalysisType_TELEGRAM {
-		for _, chatId := range(ChatIds) {
-			msg := tgbotapi.NewMessage(chatId, "hello")
-			Bot.Send(msg)
-		}
-	}
 }
