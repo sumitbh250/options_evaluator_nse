@@ -3,30 +3,29 @@ package main
 import (
 	"fmt"
 	"math"
-  _ "net/http/pprof"
-
+	_ "net/http/pprof"
 	// "github.com/davecgh/go-spew/spew"
 )
 
 type Range struct {
-	start float64
-	end float64
-	step float64
+	start       float64
+	end         float64
+	step        float64
 	profitStart float64
-	profitEnd float64
+	profitEnd   float64
 	safetyStart float64
-	safetyEnd float64
+	safetyEnd   float64
 }
 
 type Result struct {
-	symbol string
-	currentPrice float64
-	lotSize float64
-	stockRange Range
-	tradeCombo []TradeIfc
-	profitRatio float64
-	minProfit float64
-	avgProfit float64
+	symbol         string
+	currentPrice   float64
+	lotSize        float64
+	stockRange     Range
+	tradeCombo     []TradeIfc
+	profitRatio    float64
+	minProfit      float64
+	avgProfit      float64
 	amountInvested float64
 }
 
@@ -45,7 +44,7 @@ func getStockResult(stock string, lotSize float64) {
 		_ = copy(tradeComboCopy, tradeCombo)
 		// spew.Dump(tradeCombo)
 		WG.Add(1)
-		go func () {
+		go func() {
 			defer WG.Done()
 			findTradeResult(tradeComboCopy, rangeToCheck, lotSize, stock, currentPrice)
 		}()
@@ -55,7 +54,7 @@ func getStockResult(stock string, lotSize float64) {
 func getTradeRange(currentPrice float64, allCalls *AllCallsJson) Range {
 	lowerClosest, higherClosest := float64(-1), math.MaxFloat64
 	for _, call := range allCalls.CallsArr {
-	  var callDetails *SingleCallDetailsJson
+		var callDetails *SingleCallDetailsJson
 		if call.CE != nil {
 			callDetails = call.CE
 		}
@@ -73,11 +72,11 @@ func getTradeRange(currentPrice float64, allCalls *AllCallsJson) Range {
 	}
 	lowerBound := math.Floor(currentPrice - (currentPrice * AnalysisRangeLowerPct))
 	upperBound := math.Ceil(currentPrice + (currentPrice * AnalysisRangeUpperPct))
-  safetyStart := math.Floor(currentPrice - (currentPrice * SafetyRangeLowerPct))
+	safetyStart := math.Floor(currentPrice - (currentPrice * SafetyRangeLowerPct))
 	safetyEnd := math.Ceil(currentPrice + (currentPrice * SafetyRangeUpperPct))
 	profitStart := math.Floor(currentPrice - (currentPrice * ProfitRangeLowerPct))
 	profitEnd := math.Floor(currentPrice + (currentPrice * ProfitRangeUpperPct))
-	return Range{lowerBound, upperBound, (higherClosest-lowerClosest), profitStart, profitEnd, safetyStart, safetyEnd}
+	return Range{lowerBound, upperBound, (higherClosest - lowerClosest), profitStart, profitEnd, safetyStart, safetyEnd}
 }
 
 func findTradeResult(tradeCombo []TradeIfc, stockRange Range, lotSize float64, symbol string, currentPrice float64) {
@@ -96,7 +95,7 @@ func findTradeResult(tradeCombo []TradeIfc, stockRange Range, lotSize float64, s
 	for _, trade := range tradeCombo {
 		if trade.GetTradeType() == TradeType_SELL {
 			hasSellTrade = true
-		} else if (trade.GetTradeType() == TradeType_BUY && trade.GetCallType() != CallType_FUTURE) {
+		} else if trade.GetTradeType() == TradeType_BUY && trade.GetCallType() != CallType_FUTURE {
 			amountInvested += (trade.GetPremium() * lotSize)
 		}
 		if trade.GetCallType() == CallType_FUTURE {
@@ -109,18 +108,25 @@ func findTradeResult(tradeCombo []TradeIfc, stockRange Range, lotSize float64, s
 	var lossCount float64 = 0
 	var total float64 = 0
 	minProfit := math.MaxFloat64
-	var avgProfit float64 =  0
+	var avgProfit float64 = 0
 	// profitArr []int
 	for expiryPrice := stockRange.start; expiryPrice <= stockRange.end; expiryPrice += stockRange.step {
-		var profit float64 =  0
+		var profit float64 = 0
 		// total++
 		for _, trade := range tradeCombo {
 			profit += trade.ProfitAmount(expiryPrice)
 		}
+
+		// if (expiryPrice > 19450 && expiryPrice < 19550) && profit*lotSize < 30000 {
+		// 	return
+		// }
+		// if (expiryPrice > 20950 && expiryPrice < 21050) && profit*lotSize < -30000 {
+		// 	return
+		// }
 		if profit >= 0 {
 			// profitArr = append(profitArr, profit)
 			if stockRange.profitStart <= expiryPrice && stockRange.profitEnd >= expiryPrice {
-				if profit * lotSize < ProfitRangeMinProfit {
+				if profit*lotSize < ProfitRangeMinProfit {
 					return
 				}
 				total++
@@ -129,7 +135,7 @@ func findTradeResult(tradeCombo []TradeIfc, stockRange Range, lotSize float64, s
 				}
 				avgProfit += profit
 			} else if stockRange.safetyStart <= expiryPrice && stockRange.safetyEnd >= expiryPrice {
-				if profit * lotSize < SafetyRangeMinProfit {
+				if profit*lotSize < SafetyRangeMinProfit {
 					return
 				}
 				// total++
@@ -137,22 +143,29 @@ func findTradeResult(tradeCombo []TradeIfc, stockRange Range, lotSize float64, s
 				// 	minProfit = profit
 				// }
 				// avgProfit += profit
-			} else if profit * lotSize < AnalysisRangeMinProfit {
+			} else if profit*lotSize < AnalysisRangeMinProfit {
 				return
 			}
 		} else {
 			lossCount++
 			if stockRange.profitStart <= expiryPrice && stockRange.profitEnd >= expiryPrice {
-				if profit * lotSize < (-1 * ProfitRangeMaxLoss) {
+				if profit*lotSize < (-1 * ProfitRangeMaxLoss) {
 					return
 				}
 			} else if stockRange.safetyStart <= expiryPrice && stockRange.safetyEnd >= expiryPrice {
-				if profit * lotSize < (-1 * SafetyRangeMaxLoss) {
+				if profit*lotSize < (-1 * SafetyRangeMaxLoss) {
 					return
 				}
-			} else if profit * lotSize < (-1 * AnalysisRangeMaxLoss) {
+			} else if profit*lotSize < (-1 * AnalysisRangeMaxLoss) {
 				return
 			}
+		}
+	}
+
+	if amountInvested > 0 {
+		tmpAvgProfit := ((avgProfit * lotSize * 100) / (total * amountInvested))
+		if tmpAvgProfit < MinAvgProfitPct {
+			return
 		}
 	}
 	if hasSellTrade || hasFutureTrade {
@@ -161,10 +174,10 @@ func findTradeResult(tradeCombo []TradeIfc, stockRange Range, lotSize float64, s
 	if amountInvested > MaxInvestmentAmount {
 		return
 	}
-	minProfit = (minProfit * lotSize * 100)/amountInvested
+	minProfit = (minProfit * lotSize * 100) / amountInvested
 	// avgProfit = (((avgProfit * lotSize * 100) - (40 * NumTrades))/(total*amountInvested))
-	avgProfit = ((avgProfit * lotSize * 100)/(total*amountInvested))
-	profitRatio := ((total - lossCount) * 100)/total
+	avgProfit = ((avgProfit * lotSize * 100) / (total * amountInvested))
+	profitRatio := ((total - lossCount) * 100) / total
 	if avgProfit < MinAvgProfitPct {
 		return
 	}
@@ -245,6 +258,9 @@ func validTradeComboIter(fixedTrades []TradeIfc, trades []TradeIfc, numTrades in
 			// spew.Dump(tradeCombo)
 			tradeCombo = append(tradeCombo, fixedTrades...)
 			if isTradeComboValid(tradeCombo) {
+				// for _, trade := range tradeCombo {
+				// 	trade.PrintDetails()
+				// }
 				chnl <- tradeCombo
 				i++
 			}
@@ -264,7 +280,7 @@ func isTradeComboValid(tradeCombo []TradeIfc) bool {
 	peSellStrikes := make(map[float64]bool)
 	futBuyTrade := false
 	futSellTrade := false
-	for _, trade := range(tradeCombo) {
+	for _, trade := range tradeCombo {
 		if trade.GetTradeType() == TradeType_SELL {
 			numSell++
 			totalCalls++

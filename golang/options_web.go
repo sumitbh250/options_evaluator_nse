@@ -16,11 +16,10 @@ import (
 
 type WebSession struct {
 	timeoutSecs int32
-	retryCount int32
-	client *http.Client
-	maxFDChan chan bool
+	retryCount  int32
+	client      *http.Client
+	maxFDChan   chan bool
 }
-
 
 func NewWebSession(timeoutSecs int32, retryCount int32, maxFileDescriptors int32) *WebSession {
 	n := new(WebSession)
@@ -28,9 +27,9 @@ func NewWebSession(timeoutSecs int32, retryCount int32, maxFileDescriptors int32
 	n.retryCount = retryCount
 	n.maxFDChan = make(chan bool, maxFileDescriptors)
 	jar, _ := cookiejar.New(nil)
-	n.client = &http.Client {
+	n.client = &http.Client{
 		Timeout: time.Duration(timeoutSecs) * time.Second,
-		Jar: jar,
+		Jar:     jar,
 	}
 	n.initNseSession()
 	n.initZerodhaSession()
@@ -104,11 +103,24 @@ func (ws *WebSession) getDataFromWeb(request *http.Request) ([]byte, error) {
 }
 
 func (ws *WebSession) initNseSession() {
-	header := http.Header {
-    "user-agent": {"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.149 Safari/537.36"},
-    "accept-language": {"en,gu;q=0.9,hi;q=0.8"},
-		"accept-encoding": {"gzip, deflate, br"},
-		"accept": {"application/json, text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9"},
+	// header := http.Header{
+	// 	"user-agent":      {"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.149 Safari/537.36"},
+	// 	"accept-language": {"en,gu;q=0.9,hi;q=0.8"},
+	// 	"accept-encoding": {"gzip, deflate, br"},
+	// 	"accept":          {"application/json, text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9"},
+	// }
+
+	header := http.Header{
+		"authority":        {"www.nseindia.com"},
+		"accept":           {"application/json, text/javascript, */*; q=0.01"},
+		"accept-language":  {"en-US,en;q=0.9,hi;q=0.8"},
+		"dnt":              {"1"},
+		"referer":          {"https://www.nseindia.com/"},
+		"sec-fetch-mode":   {"cors"},
+		"sec-fetch-site":   {"same-origin"},
+		"sec-gpc":          {"1"},
+		"user-agent":       {"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36"},
+		"x-requested-with": {"XMLHttpRequest"},
 	}
 
 	_, err := ws.getDataFromWeb(getHttpGetRequest("https://www.nseindia.com", header))
@@ -118,17 +130,23 @@ func (ws *WebSession) initNseSession() {
 }
 
 type CurrentPrice struct {
-	CurrentPrice float64  `json:"underlyingValue,omitempty"`
+	CurrentPrice float64 `json:"underlyingValue,omitempty"`
 }
 
 func (ws *WebSession) FetchCurrentPrice(stock string) (float64, error) {
-	header := http.Header {
-    "user-agent": {"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.149 Safari/537.36"},
-    "accept-language": {"en,gu;q=0.9,hi;q=0.8"},
-		"accept-encoding": {"gzip, deflate, br"},
-		"accept": {"application/json, text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9"},
+	header := http.Header{
+		"authority":        {"www.nseindia.com"},
+		"accept":           {"application/json, text/javascript, */*; q=0.01"},
+		"accept-language":  {"en-US,en;q=0.9,hi;q=0.8"},
+		"dnt":              {"1"},
+		"referer":          {"https://www.nseindia.com/"},
+		"sec-fetch-mode":   {"cors"},
+		"sec-fetch-site":   {"same-origin"},
+		"sec-gpc":          {"1"},
+		"user-agent":       {"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36"},
+		"x-requested-with": {"XMLHttpRequest"},
 	}
-	url := "https://www.nseindia.com/api/quote-derivative?symbol="+ url.QueryEscape(stock)
+	url := "https://www.nseindia.com/api/quote-derivative?symbol=" + url.QueryEscape(stock)
 	body, err := ws.getDataFromWeb(getHttpGetRequest(url, header))
 	var currentPrice CurrentPrice
 	err = json.Unmarshal(body, &currentPrice)
@@ -142,13 +160,13 @@ func (ws *WebSession) FetchCurrentPrice(stock string) (float64, error) {
 }
 
 type SingleCallDetailsJson struct {
-	StrikePrice float64 `json:"strikePrice"`
-	ExpiryDate string   `json:"expiryDate"`
-	OpenInterest float64 `json:"openInterest"`
+	StrikePrice       float64 `json:"strikePrice"`
+	ExpiryDate        string  `json:"expiryDate"`
+	OpenInterest      float64 `json:"openInterest"`
 	TotalTradedVolume float64 `json:"totalTradedVolume"`
-	AskPrice float64 `json:"askPrice"`
-	BidPrice float64 `json:"bidprice"`
-	LastPrice float64 `json:"lastPrice"`
+	AskPrice          float64 `json:"askPrice"`
+	BidPrice          float64 `json:"bidprice"`
+	LastPrice         float64 `json:"lastPrice"`
 }
 
 type SingleCallJson struct {
@@ -165,11 +183,11 @@ type OptionsRecords struct {
 }
 
 func (ws *WebSession) FetchOptionsData(stock string) (*AllCallsJson, error) {
-	header := http.Header {
-    "user-agent": {"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.149 Safari/537.36"},
-    "accept-language": {"en,gu;q=0.9,hi;q=0.8"},
+	header := http.Header{
+		"user-agent":      {"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.149 Safari/537.36"},
+		"accept-language": {"en,gu;q=0.9,hi;q=0.8"},
 		"accept-encoding": {"gzip, deflate, br"},
-		"accept": {"application/json, text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9"},
+		"accept":          {"application/json, text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9"},
 	}
 	stockUrl := ""
 	indicesTemplate := "https://www.nseindia.com/api/option-chain-indices?symbol="
@@ -192,11 +210,11 @@ func (ws *WebSession) FetchOptionsData(stock string) (*AllCallsJson, error) {
 }
 
 type MetadataInfo struct {
-	InstrumentType string `json:instrumentType`
-	ExpiryDate string `json:expiryDate`
-	OptionType string `json:optionType`
-	StrikePrice float64 `json:strikePrice`
-	Identifier string `json:identifier`
+	InstrumentType          string  `json:instrumentType`
+	ExpiryDate              string  `json:expiryDate`
+	OptionType              string  `json:optionType`
+	StrikePrice             float64 `json:strikePrice`
+	Identifier              string  `json:identifier`
 	NumberOfContractsTraded float64 `json:numberOfContractsTraded`
 }
 
@@ -205,8 +223,8 @@ type OrderInfo struct {
 }
 
 type CarryOfCostPriceInfo struct {
-	BestBuy float64 `json:bestBuy`
-	BestSell float64 `json:bestSell`
+	BestBuy   float64 `json:bestBuy`
+	BestSell  float64 `json:bestSell`
 	LastPrice float64 `json:lastPrice`
 }
 
@@ -216,13 +234,13 @@ type CarryOfCostInfo struct {
 }
 
 type MarketDeptOrderBookInfo struct {
-	Bid []*OrderInfo `json:bid`
-	Ask []*OrderInfo `json:ask`
+	Bid         []*OrderInfo     `json:bid`
+	Ask         []*OrderInfo     `json:ask`
 	CarryOfCost *CarryOfCostInfo `json:carryOfCost`
 }
 
 type StocksData struct {
-	Metadata MetadataInfo `json:metadata`
+	Metadata            MetadataInfo            `json:metadata`
 	MarketDeptOrderBook MarketDeptOrderBookInfo `json:marketDeptOrderBook`
 }
 
@@ -231,11 +249,11 @@ type OptionsFutRecords struct {
 }
 
 func (ws *WebSession) FetchOptionsAndFuturesData(stock string) (*OptionsFutRecords, error) {
-	header := http.Header {
-    "user-agent": {"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.149 Safari/537.36"},
-    "accept-language": {"en,gu;q=0.9,hi;q=0.8"},
+	header := http.Header{
+		"user-agent":      {"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.149 Safari/537.36"},
+		"accept-language": {"en,gu;q=0.9,hi;q=0.8"},
 		"accept-encoding": {"gzip, deflate, br"},
-		"accept": {"application/json, text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9"},
+		"accept":          {"application/json, text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9"},
 	}
 	urlTemplate := "https://www.nseindia.com/api/quote-derivative?symbol="
 	stockUrl := urlTemplate + url.QueryEscape(stock)
@@ -252,17 +270,17 @@ func (ws *WebSession) FetchOptionsAndFuturesData(stock string) (*OptionsFutRecor
 }
 
 func (ws *WebSession) initZerodhaSession() {
-	header := http.Header {
-		"User-Agent": {"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:84.0) Gecko/20100101 Firefox/84.0"},
-		"Accept": {"application/json, text/javascript, */*; q=0.01"},
-		"Accept-Language": {"en-US,en;q=0.5"},
-		"Referer": {"https://zerodha.com/"},
-		"Content-Type": {"application/x-www-form-urlencoded; charset=UTF-8"},
+	header := http.Header{
+		"User-Agent":       {"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:84.0) Gecko/20100101 Firefox/84.0"},
+		"Accept":           {"application/json, text/javascript, */*; q=0.01"},
+		"Accept-Language":  {"en-US,en;q=0.5"},
+		"Referer":          {"https://zerodha.com/"},
+		"Content-Type":     {"application/x-www-form-urlencoded; charset=UTF-8"},
 		"X-Requested-With": {"XMLHttpRequest"},
-		"Origin": {"https://zerodha.com"},
-		"Connection": {"keep-alive"},
-		"TE": {"Trailers"},
-		"DNT": {"1"},
+		"Origin":           {"https://zerodha.com"},
+		"Connection":       {"keep-alive"},
+		"TE":               {"Trailers"},
+		"DNT":              {"1"},
 	}
 	_, err := ws.getDataFromWeb(getHttpGetRequest("https://zerodha.com/", header))
 	if err != nil {
@@ -275,22 +293,22 @@ type TotalRet struct {
 }
 
 type OptionsMarginRet struct {
-	Total TotalRet  `json:"total"`
+	Total TotalRet `json:"total"`
 }
 
 func (ws *WebSession) GetMarginForTrades(trades []TradeIfc, symbol string,
-  lotSize float64, expiryDate string) float64 {
+	lotSize float64, expiryDate string) float64 {
 
-	header := http.Header {
-		"User-Agent": {"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:84.0) Gecko/20100101 Firefox/84.0"},
-		"Accept": {"application/json"},
-		"Accept-Language": {"en-US,en;q=0.5"},
-		"Referer": {"https://zerodha.com/"},
-		"Content-Type": {"application/x-www-form-urlencoded; charset=UTF-8"},
+	header := http.Header{
+		"User-Agent":       {"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:84.0) Gecko/20100101 Firefox/84.0"},
+		"Accept":           {"application/json"},
+		"Accept-Language":  {"en-US,en;q=0.5"},
+		"Referer":          {"https://zerodha.com/"},
+		"Content-Type":     {"application/x-www-form-urlencoded; charset=UTF-8"},
 		"X-Requested-With": {"XMLHttpRequest"},
-		"Origin": {"https://zerodha.com"},
-		"Connection": {"keep-alive"},
-		"TE": {"Trailers"},
+		"Origin":           {"https://zerodha.com"},
+		"Connection":       {"keep-alive"},
+		"TE":               {"Trailers"},
 	}
 	strUrl := "https://zerodha.com/margin-calculator/SPAN"
 	data := url.Values{}
@@ -298,9 +316,9 @@ func (ws *WebSession) GetMarginForTrades(trades []TradeIfc, symbol string,
 	tradesFreq := make(map[TradeIfc]int)
 	for _, trade := range trades {
 		if trade.GetTradeType() == TradeType_NULL || trade.GetCallType() == CallType_NULL {
-		  continue
+			continue
 		} else if val, ok := tradesFreq[trade]; ok {
-			tradesFreq[trade] = val+1
+			tradesFreq[trade] = val + 1
 		} else {
 			tradesFreq[trade] = 1
 		}
@@ -323,7 +341,7 @@ func (ws *WebSession) GetMarginForTrades(trades []TradeIfc, symbol string,
 		} else if trade.GetTradeType() == TradeType_SELL {
 			data.Add("trade[]", "sell")
 		}
-		data.Add("qty[]", strconv.Itoa(int(lotSize) * freq))
+		data.Add("qty[]", strconv.Itoa(int(lotSize)*freq))
 		strStrike := strconv.FormatFloat(trade.GetStrikePrice(), 'f', -1, 64)
 		if float64(int(trade.GetStrikePrice())) == trade.GetStrikePrice() {
 			strStrike = strconv.Itoa(int(trade.GetStrikePrice()))

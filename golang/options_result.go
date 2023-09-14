@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/go-telegram-bot-api/telegram-bot-api"
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 )
 
 func AnalyzeResults() {
@@ -18,7 +18,7 @@ func AnalyzeResults() {
 	sort.Slice(Results, func(i, j int) bool {
 		if ResultSortType == SortType_AVG_PROFIT {
 			return Results[i].avgProfit > Results[j].avgProfit
-		} else if  ResultSortType == SortType_MIN_PROFIT {
+		} else if ResultSortType == SortType_MIN_PROFIT {
 			return Results[i].minProfit > Results[j].minProfit
 		} else {
 			return false
@@ -45,11 +45,11 @@ func AnalyzeResults() {
 
 func printResultAnalysis(r *Result) {
 	fmt.Println("Symbol", r.symbol, "Current Price", r.currentPrice,
-	  "Lot Size", r.lotSize, "Range", r.stockRange)
+		"Lot Size", r.lotSize, "Range", r.stockRange)
 	fmt.Println("Profit Ratio", r.profitRatio, "Avg Profit", r.avgProfit,
-	  "Min Profit", r.minProfit)
+		"Min Profit", r.minProfit)
 	fmt.Println("Amount Invested", r.amountInvested)
-	for _, trade := range(r.tradeCombo) {
+	for _, trade := range r.tradeCombo {
 		trade.PrintDetails()
 	}
 	step := r.stockRange.step
@@ -61,17 +61,16 @@ func printResultAnalysis(r *Result) {
 			profit += trade.ProfitAmount(expiryPrice)
 		}
 		if profit > 0 {
-			fmt.Println("\033[92m", expiryPrice, "    ",  int(profit * r.lotSize), "\033[00m")
+			fmt.Println("\033[92m", expiryPrice, "    ", int(profit*r.lotSize), "\033[00m")
 		} else {
-			fmt.Println("\033[91m", expiryPrice, "    ",  int(profit * r.lotSize), "\033[00m")
+			fmt.Println("\033[91m", expiryPrice, "    ", int(profit*r.lotSize), "\033[00m")
 		}
 	}
 }
 
 func SendResultAnalysisViaTelegram() {
-	for _, chatId := range(ChatIds) {
+	for _, chatId := range ChatIds {
 		msg := tgbotapi.NewMessage(chatId, "hello")
 		Bot.Send(msg)
 	}
 }
-

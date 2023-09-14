@@ -25,6 +25,14 @@ func init() {
 		log.Panic(err)
 	}
 	Bot.Debug = true
+	// aa := new(CESellTrade)
+	// bb := new(CEBuyTrade)
+	// aa.Premium = 20.45
+	// aa.StrikePrice = 17850
+	// bb.Premium = 5.5
+	// bb.StrikePrice = 18500
+	// fixedTradesArr = append(fixedTradesArr, aa, bb, bb)
+	// fixedTradesArr = append(fixedTradesArr, bb)
 }
 
 func main() {

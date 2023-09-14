@@ -2,7 +2,7 @@ package main
 
 var (
 	OptionsIndiceLotDict = map[string]float64 {
-		// "NIFTY": 75,
+		"NIFTY": 50,
 		// "FINNIFTY": 40,
 		// "BANKNIFTY": 25,
 	}
